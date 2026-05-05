@@ -1,0 +1,61 @@
+-- script inside serverscriptservice
+local Players = game:GetService("Players")
+
+-- when a player joins, set the humanoid's description to parts of the player's description
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(character)
+
+		-- get HumanoidDescription from player account
+		local desc = Players:GetHumanoidDescriptionFromUserId(player.UserId)
+		local humanoid = character:WaitForChild("Humanoid")
+
+		-- make a new description instance and apply what you want from the original description
+		local newDesc = Instance.new("HumanoidDescription")
+		newDesc.Shirt = desc.Shirt
+		newDesc.Pants = desc.Pants
+		newDesc.HeadColor = desc.HeadColor
+		newDesc.LeftArmColor = desc.LeftArmColor
+		newDesc.RightArmColor = desc.RightArmColor
+		newDesc.TorsoColor = desc.TorsoColor
+		newDesc.RightLegColor = desc.RightLegColor
+		newDesc.LeftLegColor = desc.LeftLegColor
+		newDesc.HatAccessory = desc.HatAccessory
+		newDesc.GraphicTShirt = desc.GraphicTShirt
+		newDesc.HairAccessory = desc.HairAccessory
+		newDesc.Face = desc.Face
+
+		-- apply the new description to the humanoid
+		humanoid:ApplyDescription(newDesc)	
+		
+		-- look for hat attachment inside root bone
+		local hrp = character:WaitForChild("HumanoidRootPart")
+		local hatAttachment = hrp.root.torso_lower.torso_upper.head:FindFirstChild("HatAttachment") -- follow bone path
+		
+		-- find accesory in character
+		for _, accessory in ipairs(character:GetChildren()) do
+			if accessory:IsA("Accessory") then -- if it's an accessory
+				local hatHandle = accessory:FindFirstChild("Handle") -- get accessory handle
+
+				-- if handle exists and it's a hat 
+				if hatHandle and (accessory.AccessoryType == Enum.AccessoryType.Hat) then
+					
+					-- add rigid constraint inside handle
+					local constraint = Instance.new("RigidConstraint")
+					constraint.Attachment0 = hatAttachment
+					constraint.Attachment1 = hatHandle:FindFirstChild("HatAttachment")
+					constraint.Parent = hatHandle
+				end
+				
+				-- if handle exists and it's a hair 
+				if hatHandle and (accessory.AccessoryType == Enum.AccessoryType.Hair) then 
+
+					-- add rigid constraint inside handle
+					local constraint = Instance.new("RigidConstraint")
+					constraint.Attachment0 = hatAttachment
+					constraint.Attachment1 = hatHandle:FindFirstChild("HairAttachment")
+					constraint.Parent = hatHandle
+				end
+			end
+		end
+	end)
+end)

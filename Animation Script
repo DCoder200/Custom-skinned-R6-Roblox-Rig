@@ -1,0 +1,138 @@
+--local script inside starter character scripts
+-- service for players
+local Players = game:GetService("Players")
+
+local character -- set outside for scope
+
+if Players.LocalPlayer then -- if it's a localscript
+	local player = Players.LocalPlayer 
+	character = player.Character
+else -- it's a serverscript for an npc
+	character = script.Parent
+end
+
+-- define humanoid and animator
+local humanoid = script.Parent:WaitForChild("Humanoid")
+local animator = humanoid:WaitForChild("Animator")
+
+-- grab animation objects, wait for each because they could spawn in later than the script runs
+local idleAnim = script:WaitForChild("idle"):WaitForChild("idleAnim")
+local walkAnim = script:WaitForChild("walk"):WaitForChild("walkAnim")
+local jumpAnim = script:WaitForChild("jump"):WaitForChild("jumpAnim")
+local fallAnim = script:WaitForChild("fall"):WaitForChild("fallAnim")
+
+-- load tracks (from objects placed in character)
+local tracks ={
+	idleTrack = animator:LoadAnimation(idleAnim),
+	walkTrack = animator:LoadAnimation(walkAnim),
+	jumpTrack = animator:LoadAnimation(jumpAnim),
+	fallTrack = animator:LoadAnimation(fallAnim),
+}
+
+-- define for scope
+local newTrack
+local currentTrack
+
+-- remotes
+local requestDash = game.ReplicatedStorage:FindFirstChild("requestDash") -- request dash to server
+
+-- function to check track conflicts
+local function trackConflicts(track, state)
+	-- prevent walk or idle from overriding jumping or falling
+	if track == tracks.walkTrack or track == tracks.idleTrack then
+		if tracks.jumpTrack.IsPlaying then return true end
+		if tracks.fallTrack.IsPlaying then return true end
+		if state == Enum.HumanoidStateType.Freefall then return true end
+		if state == Enum.HumanoidStateType.Jumping then return true end
+	end
+end
+
+-- function to stop idle if it's playing
+local function stopIdle()
+	if tracks.idleTrack.IsPlaying then
+		tracks.idleTrack:Stop()
+	end
+end
+
+-- function to stop walk if it's playing
+local function stopWalk()
+	if tracks.walkTrack.IsPlaying then
+		tracks.walkTrack:Stop()
+	end
+end
+
+-- play fall track any time jump track finishes
+local allowedJump
+tracks.jumpTrack.Stopped:Connect(function()
+	allowedJump = true
+end)
+
+-- detect if jump starts playing
+humanoid.AnimationPlayed:Connect(function(track)
+	if track.Animation == jumpAnim then
+		allowedJump = false
+	end
+end)
+
+-- function to update animations, called by renderstepped and if falling track stops
+local nextTrack
+local currentTrack
+game:GetService("RunService").Heartbeat:Connect(function()
+
+	-- walking
+	if humanoid.MoveDirection.Magnitude > 0.1 then
+		if not trackConflicts(tracks.walkTrack, humanoid:GetState()) then
+			stopIdle()
+			nextTrack = tracks.walkTrack
+		end
+	end
+
+	-- jumping state
+	if humanoid:GetState() == Enum.HumanoidStateType.Jumping then
+		-- stop walktrack if it's playing when the jump happens
+		if tracks.walkTrack.IsPlaying then 
+			tracks.walkTrack:Stop()
+		end
+		-- play jump track
+		stopIdle()
+		nextTrack = tracks.jumpTrack
+	end
+	
+	-- detect falling
+	if humanoid:GetState() == Enum.HumanoidStateType.Freefall and allowedJump then
+		stopIdle()
+		nextTrack = tracks.fallTrack
+	end
+
+	-- detect hitting ground
+	if humanoid:GetState() == Enum.HumanoidStateType.Landed then
+		tracks.jumpTrack:Stop()
+		tracks.fallTrack:Stop()
+	end
+
+	-- idle
+	if humanoid.MoveDirection.Magnitude < 0.1 then -- don't override jump
+		if not trackConflicts(tracks.idleTrack, humanoid:GetState()) then
+			stopWalk()
+			nextTrack = tracks.idleTrack 
+		end
+	end
+
+	-- if new track is different from last track, set current track to new track and stop all other tracks
+	if nextTrack ~= currentTrack then
+		currentTrack = nextTrack 
+		currentTrack:Play(0.1)
+	end
+end)
+
+
+
+
+
+
+
+
+
+
+
+

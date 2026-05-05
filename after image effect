@@ -1,0 +1,158 @@
+-- services
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local AnimationClipProvider = game:GetService("AnimationClipProvider")
+
+-- reusable tween info
+local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
+
+-- player variables
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+character.Archivable = true
+
+local humanoid = character:WaitForChild("Humanoid")
+local animator = humanoid:WaitForChild("Animator")
+local root = character:WaitForChild("HumanoidRootPart")
+
+-- function to change transparencies and properties of cloned character parts
+local function handleParts(clone, transparency, extra)
+	for _, part in pairs(clone:GetChildren()) do
+		if part:IsA("BasePart") then
+			
+			if part.CanCollide == true or part.CanTouch == true then
+				part.CanCollide = false
+				part.CanTouch = false
+			end
+			
+			if part.Name ~= "HumanoidRootPart" then 
+				part.Transparency = transparency
+			end
+		end
+
+		if part:IsA("Accessory") then
+			local handle = part:FindFirstChild("Handle")
+			handle.Transparency = transparency
+		end
+
+		if part.Name == "Head" then
+
+			-- look for decal
+			local decal = part:FindFirstChildWhichIsA("Decal")
+			decal.Transparency = transparency
+		end
+		
+		if extra then
+			if part.Name == "HumanoidRootPart" then
+				part.Transparency = 1
+				part.Anchored = true
+			end
+
+			if part:IsA("Script") then
+				part:Destroy()
+			end
+		end
+	end
+end
+
+-- function to tween transparency of parts
+local function tweenTransparency(clone)
+	
+	for _, part in pairs(clone:GetChildren()) do
+		if part:IsA("BasePart") then
+			if part.Name == "HumanoidRootPart" then continue end
+			
+			if part.Name == "Head" then
+				
+				-- look for decal
+				local decal = part:FindFirstChildWhichIsA("Decal")
+				local tween = TweenService:Create(decal, tweenInfo, {Transparency = 1})
+				tween:Play()
+			end
+			
+			-- tween transparency of part to 0
+			local tween = TweenService:Create(part, tweenInfo, {Transparency = 1})
+			tween:Play()
+		end
+		
+		if part:IsA("Accessory") then
+			local handle = part:FindFirstChild("Handle")
+			local tween = TweenService:Create(handle, tweenInfo, {Transparency = 1})
+			tween:Play()
+		end
+	end
+end
+
+-- function to create after image
+local function afterImage()
+	if not (humanoid.MoveDirection.Magnitude > 0) then return end
+
+	-- clone character
+	local clone = character:Clone()
+	local cloneRoot = clone:WaitForChild("HumanoidRootPart")
+	local cloneHumanoid = clone:WaitForChild("Humanoid")
+	
+	-- set full properties of parts but keep transparent for now
+	handleParts(clone, 1, true)
+	
+	-- set clone position behind character and parent to workspace
+	cloneRoot.CFrame = (root.CFrame * CFrame.new(0, 0, 2))
+	clone.Parent = game.Workspace
+
+	-- get the current playing animation on humanoid
+	local animationTrack = animator:GetPlayingAnimationTracks()[1]
+
+	-- get the animation id
+	local animationId = animationTrack.Animation.AnimationId
+
+	-- load and play animation on clone
+	local animation = Instance.new("Animation")
+	animation.AnimationId = animationId
+	animation.Parent = clone
+
+	-- play animation on clone
+	local cloneAnimator = cloneHumanoid:FindFirstChild("Animator")
+	local track = cloneAnimator:LoadAnimation(animation)
+	track:Play(0) -- no smoothing
+	
+	-- wait one frame so it evaluates
+	RunService.RenderStepped:Wait()
+	
+	-- find length of active animation
+	local clip = AnimationClipProvider:GetAnimationClipAsync(animation.AnimationId)
+	local endTime = 0
+	local damageStart = 0
+	for i, keyframe in pairs(clip:GetKeyframes()) do
+
+		-- set end time to keyframe time if it's higher than previous
+		if keyframe.Time > endTime then
+			endTime = keyframe.Time
+		end
+	end
+	
+	-- set animation to random frame
+	track.TimePosition = math.random() * endTime -- randomise time position (float)
+	
+	-- freeze animation on clone
+	track:AdjustSpeed(0)
+
+	-- one more frame to guarantee pose sticks
+	RunService.RenderStepped:Wait()
+	
+	-- set parts to visible and destroy humanoid
+	handleParts(clone, 0.75, false)
+	cloneHumanoid:Destroy()
+	
+	-- tween transparency of parts
+	tweenTransparency(clone)
+	
+	-- destroy character on delay
+	task.delay(2, function()
+		clone:Destroy()
+	end)
+end
+
+while task.wait(0.05) do
+	afterImage()
+end
