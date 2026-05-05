@@ -1,0 +1,56 @@
+-- modulescript inside server script service
+local toolEquipServer = {}
+
+-- function to handle equip
+function toolEquipServer.equip(tool, player)
+	local character = player.Character or player.CharacterAdded:Wait()
+	local root = character:WaitForChild("HumanoidRootPart")
+
+	-- grip for tools
+	local rightHandGrip = root.root.torso_lower.torso_upper:FindFirstChild("upper_arm.R"):FindFirstChild("lower_arm.R").RightGripAttachment
+
+	-- tool info
+	local name = tool.Name
+	tool.RequiresHandle = false
+
+	-- find model in replicated storage
+	local model = game.ReplicatedStorage.toolModels:FindFirstChild(name)
+	if not model then return end
+
+	-- clone the model and parent it to the character
+	local clone = model:Clone()
+	clone.Parent = character
+
+	-- find handle
+	local handle = clone.Handle
+	if not handle then return end
+
+	-- find the grip attachment on the handle
+	local grip = handle.gripAttachment
+	if not grip then return end
+
+	-- use a rigid constraint to attach the tool to the attachment
+	local constraint = Instance.new("RigidConstraint")
+	constraint.Attachment0 = grip
+	constraint.Attachment1 = rightHandGrip
+	constraint.Parent = handle
+end
+
+-- function to unequip
+function toolEquipServer.unequip(tool, player)
+	local character = player.Character or player.CharacterAdded:Wait()
+	local root = character:WaitForChild("HumanoidRootPart")
+	
+	-- grip for tools
+	local rightHandGrip = root.root.torso_lower.torso_upper:FindFirstChild("upper_arm.R"):FindFirstChild("lower_arm.R").RightGripAttachment
+	
+	-- tool info
+	local name = tool.Name
+	local tool = character:FindFirstChild(name)
+	if tool and tool:isA("Model") then
+		tool:Destroy()
+	end
+end
+
+return toolEquipServer
+

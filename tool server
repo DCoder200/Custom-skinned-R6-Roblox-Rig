@@ -1,0 +1,92 @@
+-- server script inside server script service
+local Players = game:GetService("Players")
+local players = Players:GetPlayers()
+
+-- tool module
+local toolModule = require(game.ServerScriptService.Modules.toolEquipServer)
+
+-- dictionary to store connections for all players
+local connections = {}
+
+-- disconnect connection when player leaves
+local function cleanup(player)
+	if not connections[player] then return end
+	
+	-- remove connections
+	if connections[player].connectionEquip then
+		connections[player].connectionEquip:Disconnect()
+		connections[player].connectionEquip = nil
+	end
+	
+	if connections[player].connectionUnequip then
+		connections[player].connectionUnequip:Disconnect()
+		connections[player].connectionUnequip = nil
+	end
+	
+	if connections[player].connectionDied then
+		connections[player].connectionDied:Disconnect()
+		connections[player].connectionDied = nil
+	end
+end
+
+-- connect function to a player's backpack
+local function setupPlayer(player)
+	local character = player.Character or player.CharacterAdded:Wait()
+	
+	-- detect children added to character 
+	local connectionEquip = character.ChildAdded:Connect(function(child)
+		if child:IsA("Tool") then
+			toolModule.equip(child, player)
+		end
+	end)
+	
+	-- detect children removed from character
+	local connectionUnequip = character.ChildRemoved:Connect(function(child)
+		if child:IsA("Tool") then
+			toolModule.unequip(child, player)
+		end
+	end)
+	
+	-- detect player dying
+	local connectionDied = character:WaitForChild("Humanoid").Died:Connect(function()
+		cleanup(player)
+	end)
+	
+	-- store connections in dictionary
+	connections[player] = {
+		connectionEquip = connectionEquip,
+		connectionUnequip = connectionUnequip,
+		connectionDied = connectionDied
+	}
+end
+
+-- setup all players
+for _, player in ipairs(players) do
+	setupPlayer(player)
+end
+
+-- detect players joining
+Players.PlayerAdded:Connect(function(player)
+	setupPlayer(player)
+	
+	-- connect character added function, this will handle the case where the player respawns
+	local connectionSetup = player.CharacterAdded:Connect(function(character)
+		setupPlayer(player)
+	end)
+	
+	-- store connection in dictionary
+	connections[player].connectionSetup = connectionSetup
+end)
+
+--detect players leaving
+Players.PlayerRemoving:Connect(function(player)
+	
+	-- disconnect character added connection from player
+	if connections[player].connectionSetup then
+		connections[player].connectionSetup:Disconnect() 
+	end
+	
+	-- cleanup remaining connections
+	cleanup(player)
+end)
+

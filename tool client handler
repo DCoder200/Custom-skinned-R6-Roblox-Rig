@@ -1,0 +1,212 @@
+-- localscript inside starter player scripts
+-- services
+local userInputService = game:GetService("UserInputService")
+
+-- get build npcs module
+local npcsClient = require(script.Parent.Modules.buildNpcs)
+
+-- remotes
+local requestDamage = game.ReplicatedStorage.Remotes.requestDamage
+
+-- player
+local player = game.Players.LocalPlayer
+
+-- set for scope
+local character  
+local humanoid 
+local root 
+local animator 
+
+-- set here for scope
+local activeTrack 
+local idleTrack 
+local handle = nil
+local overlapParams 
+
+-- tools models folder
+local toolModels = game.ReplicatedStorage:WaitForChild("toolModels")
+
+local debug = true -- debug flag
+
+-- function to handle tool equip
+local function onToolEquipped(tool)
+	
+	-- load player variables each time tool is equipped
+	character = player.Character or player.CharacterAdded:Wait()
+	humanoid = character:FindFirstChild("Humanoid")
+	root = character:WaitForChild("HumanoidRootPart")
+	animator = character:WaitForChild("Humanoid"):WaitForChild("Animator")
+	
+	-- tool variables
+	local name = tool.Name
+
+	-- find tool in tool models
+	local toolModel = toolModels:FindFirstChild(name)
+	if not toolModel then return end
+	
+	-- animations
+	local idle = toolModel.idle.idleAnim
+	local active = toolModel.active.activeAnim
+
+	-- load animation tracks
+	idleTrack = animator:LoadAnimation(idle)
+	activeTrack = animator:LoadAnimation(active)
+
+	-- play idle animation
+	idleTrack:Play()
+	
+	-- setup parameters for GetPartBoundsInBox
+	overlapParams = OverlapParams.new()
+	overlapParams.FilterDescendantsInstances = {character, game.Workspace.World}  -- filter out player character and world, give local player a mob folder later for ghost npcs
+	overlapParams.FilterType = Enum.RaycastFilterType.Exclude -- set filter type to exclude
+	
+	-- wait for handle and get it 
+	while not handle do 
+		task.wait()
+		
+		-- look for tool model within children
+		for _, child in pairs(character:GetChildren()) do
+			
+			-- check if descendant is a model and make sure it's not a tool
+			if child:IsA("Model") and not child:IsA("Tool") then
+				
+				-- check if model name matches tool name
+				if child.Name == name then
+					handle = child:WaitForChild("Handle")
+					break -- get out of for loop
+				end
+			end
+		end
+	end
+end
+
+-- function to unequip
+local function onToolUnequipped()
+	
+	-- stop animations
+	idleTrack:Stop()
+	activeTrack:Stop()
+
+	-- reset handle
+	handle = nil
+end
+
+-- detect inputs
+userInputService.InputBegan:Connect(function(input, handled)
+	if handled then return end
+	if not character then return end
+	
+	-- check if player is holding a tool
+	local tool = character:FindFirstChildOfClass("Tool")
+	if not tool then return end
+	if not activeTrack or not idleTrack then return end
+
+	-- play active animation if it's a mouse click
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		activeTrack:Play()
+		
+		local swingTime = activeTrack.Length
+		local elapsed = 0
+		
+		-- loop while animation is playing
+		while elapsed < swingTime do
+			elapsed += task.wait()
+			
+			-- do nothing if there's no handle (player might unequip mid swing)
+			if not handle then return end
+			
+			-- summon bounding box at handle
+			local result = game.Workspace:GetPartBoundsInBox(
+				handle.CFrame, --* offset, -- center
+				handle.size,--Vector3.new(5.5, 1, 1), -- size
+				overlapParams -- set overlap parameters argument as the variable you made for it
+			) 
+	
+			-- visual
+			if debug then
+				local debugPart = Instance.new("Part")
+				debugPart.Size = handle.size
+				debugPart.CFrame = handle.CFrame
+				debugPart.Anchored = true
+				debugPart.CanCollide = false
+				debugPart.CanQuery = false
+				debugPart.CanTouch = false
+				debugPart.Transparency = 0.6
+				debugPart.Color = Color3.new(1, 0, 0)
+				debugPart.Material = Enum.Material.ForceField
+				debugPart.Parent = workspace
+
+				game.Debris:AddItem(debugPart, 0.1)
+			end
+			
+			-- quit if no result
+			if not result then return end
+			
+			-- check if it's a character
+			for _, part in ipairs(result) do
+				
+				-- check if part is a model
+				local character = part.Parent
+				if not character:IsA("Model") then return end
+					
+				-- look for humanoid
+				local humanoid = part.Parent:FindFirstChild("Humanoid")
+				if not humanoid then return end
+				
+				local id = npcsClient.getCharacterId(character)
+				if id then -- fire with info for a ghost npc
+					local position = npcsClient.getCharacterPosition(id)
+					requestDamage:FireServer(false, id, position, 100) 
+					break
+				end
+				
+				-- fire with info for a character
+				requestDamage:FireServer(character, false, 100) 
+			end
+		end
+	end
+end)
+
+-- function to setup backpack connections
+local function setupConnections()
+	local backpack = player:WaitForChild("Backpack")
+	
+	-- detect tools being removed from backpack to call equipped function 
+	local connectionEquip = backpack.ChildRemoved:Connect(function(child)
+		if child:IsA("Tool") then
+			onToolEquipped(child)
+		end
+	end)
+
+	-- detect tools being added
+	local connectionUnequip = backpack.ChildAdded:Connect(function(child)
+		if child:IsA("Tool") then
+			onToolUnequipped()
+		end
+	end)
+
+	-- wait for humanoid to exist
+	while not humanoid do
+		task.wait()
+	end
+	
+	-- detect if player dies
+	local connectionDied 
+	connectionDied = humanoid.Died:Connect(function()
+		handle = nil
+		
+		-- disconnect connections
+		connectionEquip:Disconnect()
+		connectionUnequip:Disconnect()
+		connectionDied:Disconnect()
+	end)
+end
+
+-- detect character added event
+player.CharacterAdded:Connect(function()
+	setupConnections()
+end)
+
+-- setup initially
+setupConnections()
+
